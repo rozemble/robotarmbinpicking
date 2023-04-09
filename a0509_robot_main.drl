@@ -1,0 +1,212 @@
+import platform
+import time
+import json
+
+#설정 변수들을 저장합니다.
+class config_module():
+    #이것 저것 config값. 나중에는 클래스 밖으로 나갈 수도 있음?
+    mod_path = {}
+    predefined_pos = {}
+    config_gripper = {}
+    config_camera = {}
+    config_bin = {}
+
+    # tcp연결을 담당합니다.
+
+def get_config(fn=None):
+
+    conf = {}
+    if fn == None:
+        conf[""] = ""
+
+class tcp_module():
+    # recv함수에서 호출될 함수와 매핑합니다.
+    dict_func = {}
+
+    # 연결을 합니다.
+    # recv와 update 함수를 쓰레드로 호출합니다.
+    def init_tcp_client(self, ip="192.168.0.102", port=4383):
+        self.sock = client_socket_open(ip, port)
+        th_id = thread_run(self.recv_order, loop=True)
+        th_id2 = thread_run(self.update_tcp, loop=True)
+        pass
+
+    # 업데이트 정보를 비전모듈에 전달합니다.
+    # 보통 현재의 로봇 위치를 전달합니다.
+    def update_tcp(self):
+        # self.send_order(type = 'pos', para = get_desired_posx())
+        time.sleep(1)
+
+    def recv_order(self):
+        res, rx_data = client_socket_read(self.sock, length=16)
+        res, rx_data = client_socket_read(self.sock, length=int(rx_data.decode()))
+        self.recv_msg = json.loads(rx_data.decode())
+        # tp_popup(str(self.recv_msg['ORDER']), DR_PM_MESSAGE)
+        self.dict_func[self.recv_msg['COMMAND']](self.recv_msg)
+
+    def mapping_func(self, func_name, func):
+        self.dict_func[func_name] = func
+
+    def send_order(self, type='fix', para=0):
+        state_robot = {"ORDER": type, "PARA": para}
+        send_json = json.dumps(state_robot)
+        send_size = len(send_json)
+
+        client_socket_write(self.sock, str(send_size).ljust(16).encode())
+        client_socket_write(self.sock, send_json.encode())
+
+
+class main_master():
+    # 위치. 타겟 위치.
+    target_dict = {'READY': False, 'POS': [], 'GRIP_SIZE': 0}
+
+    m_tcp = tcp_module()
+    conf = {}
+    state_ready = False
+
+    state_selected_routine = ''
+
+    gripper = sub_program_run("zimmer_gripper")
+
+    def init_mm(self):
+        # 명령들 콜백으로 매핑
+        self.m_tcp.mapping_func('CONFIG', self.init_config)
+        self.m_tcp.mapping_func('CURP', self.send_pos)
+        self.m_tcp.mapping_func('CURJ', self.send_joint)
+        self.m_tcp.mapping_func('ARM', self.get_picking_point)
+        self.m_tcp.mapping_func('PICK', self.get_picking_point)
+        self.m_tcp.mapping_func('START_PICKING', self.selected_routine)
+
+        self.m_tcp.init_tcp_client()
+        while (self.state_ready == False):
+            time.sleep(1)
+
+    def init_config(self, recv_msg):
+        tp_log(str(recv_msg))
+        self.conf["mod_path"] = recv_msg['MODE_PATH']
+        self.conf["predefined_pos"] = recv_msg['PREDEFINED_POS']
+        self.conf[".config_gripper"] = recv_msg['CONFIG_GRIPPER']
+        self.conf["config_camera"] = recv_msg['CONFIG_CAMERA']
+        self.conf["config_bin"] = recv_msg['CONFIG_BIN']
+        self.state_ready = True
+
+    def send_pos(self, recv_msg):
+        self.m_tcp.send_order(type='pos', para=get_current_posx())
+
+    def send_joint(self, recv_msg):
+        self.m_tcp.send_order(type='pos', para=get_current_posj())
+
+    def selected_routine(self, recv_msg):
+        self.state_selected_routine = self.routine_picking
+
+# HOME -> PP -> PLACE -> PP -> PLACE -> HOME -> PP -> HOME
+# XX -> HOME -> PP
+
+        self.m_tcp.mapping_func('CONFIG', self.init_config)
+        self.m_tcp.mapping_func('CURP', self.send_pos)
+        self.m_tcp.mapping_func('CURJ', self.send_joint)
+        self.m_tcp.mapping_func('ARM', self.get_picking_point)
+        self.m_tcp.mapping_func('PICK', self.get_picking_point)
+        self.m_tcp.mapping_func('MOVE', self.movePos)
+        self.m_tcp.mapping_func('START_PICKING', self.selected_routine)
+
+    def get_picking_point(self, recv_msg):
+
+        entryOffset = 35
+        escapeOffset = -17
+
+        destPos = recv_msg["DEST_POS"]
+        vertPos = recv_msg["VERT_POS"]
+        scndPos = recv_msg["SCND_POS"]
+        entryHoverPos = [destPos[0],destPos[1], 200,0,180,0]
+        escapeHoverPos = [destPos[0],destPos[1], 200,0,180,0]
+
+
+
+
+        curr_pos = get_current_posx()
+        camera2obj = [recv_msg['DEST_POS'][0], recv_msg['DEST_POS'][1], 0, 0, 0, 0]
+        temp_pos = trans(curr_pos, camera2obj, DR_TOOL)
+        tool_offset = self.conf.config_camera['TCP2CAMERA']
+        tool_offset = [tool_offset[0], tool_offset[1], 0, 0, 0, 0]
+        temp_pos = trans(temp_pos, tool_offset, DR_TOOL)
+        temp_pos = trans(temp_pos, [0, 0, 0, 0, 0, recv_msg['GRIP_ROTATION']], DR_TOOL)
+
+        tool_offset = self.conf.config_gripper['TCP2TOOL']
+        tool_offset = [tool_offset[0], tool_offset[1], 0, 0, 0, 0]
+        temp_pos = trans(temp_pos, tool_offset, DR_TOOL)
+
+        # seg11 = posb(DR_LINE, temp_pos, radius=40)
+
+        tool_offset = [0, 0, recv_msg['PP'][2] + self.conf.config_camera['TCP2CAMERA'][2] -
+                       self.conf.config_gripper['TCP2TOOL'][2] + 20 - 100, 0, 0, 0]
+        temp_pos2 = trans(temp_pos, tool_offset, DR_TOOL)
+
+        seg12 = posb(DR_LINE, temp_pos2, radius=10)
+
+        tool_offset = [0, 0, 50, 0, 0, 0]
+        temp_pos3 = trans(temp_pos2, tool_offset, DR_TOOL)
+
+        seg23 = posb(DR_LINE, temp_pos3, radius=10)
+
+        self.target_dict = {'READY': True, 'POS': [seg12, seg23], 'GRIP_SIZE': recv_msg['GRIP_SIZE']}
+        self.state_command = True
+
+    def get_prepick_pos(self, recv_msg):
+        temp_pos = recv_msg['PP']
+        temp_pos[2] = temp_pos[2] + self.conf.mod_path['OBJ2TCP']
+        temp_pos = posx(temp_pos)
+        tool_offset = self.conf.config_camera['TCP2CAMERA']
+        tool_offset = [-tool_offset[0], -tool_offset[1], -tool_offset[2], 0, 0, 0]
+        temp_pos = trans(temp_pos, tool_offset, DR_TOOL)
+
+        self.target_dict = {'READY': True, 'POS': posx(temp_pos), 'GRIP_SIZE': recv_msg['GRIP_SIZE']}
+        self.state_command = True
+
+
+    def movePos(self, recv_msg):
+        destPos = trans(get_current_posx(), recv_msg["DEST_POS"], DR_TOOL)
+        movel(destPos, time=1)
+
+
+    def routine_picking(self):
+        self.m_tcp.send_order(type='grip_release')
+        movej(self.conf.predefined_pos["home"][0], time=1)
+        movej(self.conf.predefined_pos["init"][0], time=1)
+        self.m_tcp.send_order(type='arm')
+        time.sleep(0.5)
+
+        for i in range(10):
+            grip_pos, grip_size = self.wait_get_pos_and_gripsize(bias_grip=10)
+            self.m_tcp.send_order(type='grip', para=grip_size)
+            moveb(grip_pos, time=5)
+            self.m_tcp.send_order(type='grip')
+
+            time.sleep(2)
+            movej(self.conf.predefined_pos["init"][0], time=1)
+            time.sleep(0.5)
+            self.m_tcp.send_order(type='arm')
+            movel(self.conf.predefined_pos["place_pos"][0], time=1)
+            self.m_tcp.send_order(type='grip_release')
+            time.sleep(1)
+            movej(self.conf.predefined_pos["init"][0], time=1)
+
+    def wait_get_pos_and_gripsize(self, bias_grip = 0):
+        while(self.target_dict['READY'] == False):
+            time.sleep(0.1)
+        self.target_dict['READY'] = False
+        return self.target_dict['POS'], self.target_dict['GRIP_SIZE'] + bias_grip
+015
+    def go_home(self):
+4        self.gripper.grip_release()
+        current_p, ws = get_current_posx(DR_BASE)
+        current_p_up = posx(current_p[0]-50, current_p[1], current_p[2] + 100, current_p[3], current_p[4], current_p[5])
+        current_p_back = posx(current_p_up[0] - 150, current_p_up[1], current_p_up[2], current_p_up[3], current_p_up[4], current_p_up[5])
+        amovel(current_p_up)
+        self.mwait_collision_detection(goal_pose = current_p_up, pose_thresh = 20.0)
+        amovel(current_p_back)
+        self.mwait_collision_detection(goal_pose = current_p_back, pose_thresh = 20.0)
+        init_joint = posj(65.15, -0.13, 126.05, -0.02, 54.16, -203.99) # receive from vision module
+        movej(init_joint, vel=50, acc=100)
+
+

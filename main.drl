@@ -1,0 +1,620 @@
+﻿import platform
+import time
+import json
+
+#설정 변수들을 저장합니다.
+class config_module():
+    #이것 저것 config값. 나중에는 클래스 밖으로 나갈 수도 있음?
+    mod_path = {}
+    predefined_pos = {}
+    config_gripper = {}   
+    config_camera = {}
+    config_bin = {}
+
+#tcp연결을 담당합니다.
+class tcp_module():
+    #recv함수에서 호출될 함수와 매핑합니다.
+    dict_func = {}
+    #연결을 합니다.
+    #recv와 update 함수를 쓰레드로 호출합니다.
+    def init_tcp_client(self, ip = "192.168.0.55", port = 4383):
+        self.sock = client_socket_open(ip, port)
+        th_id = thread_run(self.recv_order, loop=True)
+        th_id2 = thread_run(self.update_tcp, loop=True)
+        pass
+    
+    #업데이트 정보를 비전모듈에 전달합니다.
+    #보통 현재의 로봇 위치를 전달합니다.
+    def update_tcp(self):
+        #self.send_order(type = 'pos', para = get_desired_posx())
+        time.sleep(1)
+        
+    def recv_order(self):
+        res, rx_data = client_socket_read(self.sock, length=16)
+        res, rx_data = client_socket_read(self.sock, length=int(rx_data.decode()))
+        self.recv_msg = json.loads(rx_data.decode())
+        #tp_popup(str(self.recv_msg['ORDER']), DR_PM_MESSAGE)
+        self.dict_func[self.recv_msg['ORDER']](self.recv_msg)        
+        
+    def mapping_func(self, func_name, func):
+        self.dict_func[func_name] = func
+        
+    def send_order(self, type = 'fix', para = 0):
+        state_robot = {"ORDER":type, "PARA":para}
+        send_json = json.dumps(state_robot)
+        send_size = len(send_json)
+        
+        client_socket_write(self.sock, str(send_size).ljust(16).encode())
+        client_socket_write(self.sock, send_json.encode())
+        
+class main_master():
+    #위치. 타겟 위치.
+    target_dict = {'READY':False,'POS':[],'GRIP_SIZE':0}
+    
+    m_tcp = tcp_module()
+    m_config = config_module()
+    state_ready = False
+    
+    state_selected_routine = ''
+    
+    gripper = sub_program_run("zimmer_gripper")
+    
+    def init_mm(self):
+        #명령들 콜백으로 매핑
+        self.m_tcp.mapping_func('CONFIG',self.init_config)
+        self.m_tcp.mapping_func('GET_POS',self.send_pos)
+        self.m_tcp.mapping_func('ARM',self.get_picking_point)
+        self.m_tcp.mapping_func('FIX',self.get_prepick_pos)
+        self.m_tcp.mapping_func('START_PICKING',self.selected_routine)
+        self.m_tcp.mapping_func('START_LV2',self.selected_lv2)
+        
+        self.gripper.set_print(True)
+        self.gripper.init()
+        self.gripper.grip_release()
+       
+        self.m_tcp.init_tcp_client()
+        while(self.state_ready == False):
+            time.sleep(1)
+    
+    def init_config(self, recv_msg):
+        tp_log(str(recv_msg))
+        self.m_config.mod_path = recv_msg['MODE_PATH']
+        self.m_config.predefined_pos = recv_msg['PREDEFINED_POS']
+        self.m_config.config_gripper = recv_msg['CONFIG_GRIPPER']
+        self.m_config.config_camera = recv_msg['CONFIG_CAMERA']
+        self.m_config.config_bin = recv_msg['CONFIG_BIN']
+        self.state_ready = True
+        
+    def send_pos(self, recv_msg):
+        self.m_tcp.send_order(type = 'pos', para = get_desired_posx())
+    
+    def selected_routine(self, recv_msg):
+        self.state_selected_routine = self.routine_picking
+        
+    def selected_lv2(self, recv_msg):
+        self.state_selected_routine = self.routine_lv2
+
+    def routine_lv_hj(self, recv_msg):
+        self.state_selected_routine = self.routine_lv_hj
+        
+    def get_picking_point(self, recv_msg):
+        curr_pos = get_desired_posx()
+        camera2obj = [recv_msg['PP'][0],recv_msg['PP'][1],0,0,0,0]
+        temp_pos = trans(curr_pos, camera2obj, DR_TOOL)
+        tool_offset = self.m_config.config_camera['TCP2CAMERA']
+        tool_offset = [tool_offset[0],tool_offset[1],0,0,0,0]
+        temp_pos = trans(temp_pos, tool_offset, DR_TOOL)
+        temp_pos = trans(temp_pos, [0,0,0,0,0,recv_msg['GRIP_ROTATION']], DR_TOOL)        
+
+        tool_offset = self.m_config.config_gripper['TCP2TOOL']
+        tool_offset = [tool_offset[0],tool_offset[1],0,0,0,0]
+        temp_pos = trans(temp_pos, tool_offset, DR_TOOL)
+        
+        #seg11 = posb(DR_LINE, temp_pos, radius=40)
+        
+        tool_offset = [0,0,recv_msg['PP'][2] + self.m_config.config_camera['TCP2CAMERA'][2] - self.m_config.config_gripper['TCP2TOOL'][2]+20 - 100,0,0,0]
+        temp_pos2 = trans(temp_pos, tool_offset, DR_TOOL)
+        
+        seg12 = posb(DR_LINE, temp_pos2, radius=10)
+   
+        tool_offset = [0,0,50,0,0,0]
+        temp_pos3 = trans(temp_pos2, tool_offset, DR_TOOL)
+        
+        seg23 = posb(DR_LINE, temp_pos3, radius=10)
+
+        self.target_dict = {'READY':True,'POS':[seg12,seg23], 'GRIP_SIZE':recv_msg['GRIP_SIZE']}
+        self.state_command = True
+        
+    def get_prepick_pos(self, recv_msg):
+        temp_pos = recv_msg['PP']        
+        temp_pos[2] = temp_pos[2] + self.m_config.mod_path['OBJ2TCP']
+        temp_pos = posx(temp_pos)
+        tool_offset = self.m_config.config_camera['TCP2CAMERA']
+        tool_offset = [-tool_offset[0],-tool_offset[1],-tool_offset[2],0,0,0]
+        temp_pos = trans(temp_pos, tool_offset, DR_TOOL)
+      
+        self.target_dict = {'READY':True,'POS':posx(temp_pos), 'GRIP_SIZE':recv_msg['GRIP_SIZE']}
+       
+        self.state_command = True
+        
+    def routine_picking(self):
+        self.m_tcp.send_order(type = 'grip_release')
+        movej(self.m_config.predefined_pos["home"][0], time = 1)
+        movej(self.m_config.predefined_pos["init"][0], time = 1)
+        self.m_tcp.send_order(type = 'arm')
+        time.sleep(0.5)
+    
+        for i in range(10):  
+            grip_pos, grip_size = self.wait_get_pos_and_gripsize(bias_grip = 10)
+            self.m_tcp.send_order(type = 'grip', para = grip_size)
+            moveb(grip_pos, time=5)
+            self.m_tcp.send_order(type = 'grip')
+
+            time.sleep(2)
+            movej(self.m_config.predefined_pos["init"][0], time = 1)
+            time.sleep(0.5)
+            self.m_tcp.send_order(type = 'arm')
+            movel(self.m_config.predefined_pos["place_pos"][0], time = 1)
+            self.m_tcp.send_order(type = 'grip_release')
+            time.sleep(1)
+            movej(self.m_config.predefined_pos["init"][0], time = 1)     
+            
+    def routine_lv2(self):
+        self.m_tcp.send_order(type = 'grip_release')
+        movej(self.m_config.predefined_pos["home"][0], time = 10)
+        self.m_tcp.send_order(type = 'fix')
+        movej(self.m_config.predefined_pos["init"][0], time = 10)
+        grip_pos, grip_size = self.wait_get_pos_and_gripsize(bias_grip = 10)
+        movel(grip_pos, time=5)
+        self.m_tcp.send_order(type = 'arm')
+        time.sleep(1)   
+        
+        #포즈 값을 받아올때 까지 대기.
+    def wait_get_pos_and_gripsize(self, bias_grip = 0):
+        while(self.target_dict['READY'] == False):
+            time.sleep(0.1)
+        self.target_dict['READY'] = False
+        return self.target_dict['POS'], self.target_dict['GRIP_SIZE'] + bias_grip
+  
+    def routine_collision_test(self):
+        movej([0, 0, 90, 0, 90, 0], vel=20, acc=40)
+        ready_pose = [428.34, 46.71, 439.94, 0.27, 179.63, 64.63]
+        offset = 300
+        p1 = ready_pose
+        p1[2] -= offset
+        ref = p1
+        vel = 50
+        acc = vel*2
+        task_compliance_ctrl()
+        set_stiffnessx([10, 10, 1, 10, 10, 10])
+        amovel([0, 0, offset, 0, 0, 0], vel=vel, acc=acc, ref=DR_TOOL)
+        flag = False
+        while True:
+            p, ws = get_current_posx(DR_BASE)
+            #dist = sqrt(pow(float(p[0]) - p1[0] ,2) + pow(float(p[1]) - p1[1] ,2) + pow(float(p[2]) - p1[2] ,2))
+            #if dist < 2.0:
+                #tp_log('Goal reach !!!')
+                #break
+            force = get_tool_force()
+            force_sum = sqrt(force[0]*force[0] + force[1]*force[1] + force[2]*force[2])
+            tp_log(str(force_sum))
+            if force_sum > 50:
+                tp_log('Collision Detected !!!')
+                stop(DR_QSTOP)
+                release_compliance_ctrl()
+                movej([0, 0, 90, 0, 90, 0], vel=20, acc=40)
+                flag = True
+                break
+                
+        if flag is False:
+            release_compliance_ctrl()
+        
+        time.sleep(1)
+
+    def routine_compliance_ctrl_test(self):
+        movej([1.633, -8.48, 119.97, -0.01, 68.14, 65.99], vel=20, acc=20)
+        ready_pose = [428.34, 46.71, 439.94, 0.27, 179.63, 64.63]
+        offset = 170
+        p1 = ready_pose
+        p1[2] -= offset
+        ref = p1
+        vel = 50
+        acc = vel*2
+        task_compliance_ctrl()
+        set_stiffnessx([10, 10, 1, 10, 10, 10])
+        amovel([0, 0, offset, 0, 0, 0], vel=vel, acc=acc, ref=DR_TOOL)
+        while True:
+            p, ws = get_current_posx(DR_BASE)
+            dist = sqrt(pow(float(p[0]) - p1[0] ,2) + pow(float(p[1]) - p1[1] ,2) + pow(float(p[2]) - p1[2] ,2))
+            if dist < 2.0:
+                break
+                
+        time.sleep(1)
+        release_compliance_ctrl()
+
+    def routine_gripper_test(self):
+        self.gripper.grip_release()
+        self.gripper.grip()
+        grip_success = self.gripper.grip_get_success()
+        tp_log('grip : ' + str(grip_success))
+        time.sleep(1)
+        
+    def mwait_collision_detection(self, goal_pose, pose_thresh = 2.0, collision_active = True, collision_thresh = 25):
+        #tp_log('Collision Threshold : ' + str(collision_thresh))
+        collision_flag = False
+        while True:
+            p, ws = get_current_posx(DR_BASE)
+            dist = sqrt(pow(float(p[0]) - goal_pose[0] ,2) + pow(float(p[1]) - goal_pose[1] ,2) + pow(float(p[2]) - goal_pose[2] ,2))
+            #tp_log('distance err : ' + str(dist))
+            if dist < pose_thresh:
+                tp_log('Goal reach !!!')
+                break
+            
+            if collision_active is True:
+                force = get_tool_force()
+                force_sum = sqrt(force[0]*force[0] + force[1]*force[1] + force[2]*force[2])
+                if force_sum > collision_thresh:
+                    tp_log('Collision Detected !!!')
+                    stop(DR_QSTOP)
+                    time.sleep(1)
+                    collision_flag = True
+                    break
+                
+        return collision_flag
+
+    def go_home(self):
+        self.gripper.grip_release()
+        current_p, ws = get_current_posx(DR_BASE)
+        current_p_up = posx(current_p[0]-50, current_p[1], current_p[2] + 100, current_p[3], current_p[4], current_p[5])
+        current_p_back = posx(current_p_up[0] - 150, current_p_up[1], current_p_up[2], current_p_up[3], current_p_up[4], current_p_up[5])
+        amovel(current_p_up)
+        self.mwait_collision_detection(goal_pose = current_p_up, pose_thresh = 20.0)
+        amovel(current_p_back)
+        self.mwait_collision_detection(goal_pose = current_p_back, pose_thresh = 20.0)
+        init_joint = posj(65.15, -0.13, 126.05, -0.02, 54.16, -203.99) # receive from vision module
+        movej(init_joint, vel=50, acc=100)
+
+    def routine_lv_hj(self):
+        vel = 200
+        set_velx(vel)
+        set_accx(vel*2)
+        self.gripper.grip_release()
+        
+        init_joint = posj(65.15, -0.13, 126.05, -0.02, 54.16, -203.99) # receive from vision module
+        movej(init_joint, vel=50, acc=100)
+        
+        p1 = posx(409.98, 180.56, 386.15, 165.71, -179.83, -106.4)
+        p2 = posx(400.58, -169.29, 387.6, 162.66, -179.83, -109.44)
+        p3 = posx(615.65, -176.01, 388.44, 161.86, -179.84, -110.24)
+        p4 = posx(622.8, 187.12, 388.52, 158.92, -179.85, -113.17)
+        
+        p_center = get_intermediate_pose(p1, p3, 0.5)
+        p_center_up = posx(p_center[0], p_center[1], p_center[2] + 50, p_center[3], p_center[4], p_center[5])
+        init_pose, ws = get_current_posx(DR_BASE)
+        init_pose_up = posx(init_pose[0], init_pose[1], init_pose[2] + 50, init_pose[3], init_pose[4], init_pose[5])
+        
+        pick_pose = posx(510.88, 190, 298.41, -90, -135, 90) # receive from vision module
+        pick_pose_up = posx(pick_pose[0], pick_pose[1], pick_pose[2] + 70, pick_pose[3], pick_pose[4], pick_pose[5])
+        pick_pose_wp = posx(pick_pose[0], pick_pose[1], pick_pose[2] + 30, pick_pose[3], pick_pose[4], pick_pose[5])
+        
+        #task_compliance_ctrl()
+        #set_stiffnessx([10, 10, 100, 10, 10, 10])
+        
+        amovel(init_pose_up)
+        collision_flag = self.mwait_collision_detection(goal_pose = init_pose_up, pose_thresh = 20.0)
+        if collision_flag is True:
+            #release_compliance_ctrl()
+            self.go_home()
+            return
+        
+        amovel(p_center_up)
+        collision_flag = self.mwait_collision_detection(goal_pose = p_center_up, pose_thresh = 20.0)
+        if collision_flag is True:
+            #release_compliance_ctrl()
+            self.go_home()
+            return
+            
+        normal_offset = 200
+        normal_offset2 = 100
+        tool_offset = 270
+        real_target = pick_pose
+        real_target[2] -= tool_offset
+        sp = [0, 0, -normal_offset - tool_offset]
+        sp2 = [0, 0, -normal_offset2 - tool_offset]
+        sp3 = [0, 0,-tool_offset]
+        
+        ang_z1 = pick_pose[3]
+        ang_y = pick_pose[4]
+        ang_z2 = pick_pose[5]
+        
+        Rz1 = rotz(ang_z1)
+        Ry = roty(ang_y)
+        Rz2 = rotz(ang_z2)
+        R = eul2rotm([ang_z1, ang_y, ang_z2])
+        
+        s = [0, 0, 0]
+        s2 = [0, 0, 0]
+        s3 = [0, 0, 0]
+        for i in range(0, 3):
+            s[i] = 0
+            s2[i] = 0
+            s3[i] = 0
+            for j in range(0, 3):
+                s[i] += R[i][j]*sp[j]
+                s2[i] += R[i][j]*sp2[j]
+                s3[i] += R[i][j]*sp3[j]
+                
+        pick_pose_up = [real_target[0] + s[0], real_target[1] + s[1], real_target[2] + s[2], ang_z1, ang_y, ang_z2]
+        pick_pose_wp = [real_target[0] + s2[0], real_target[1] + s2[1], real_target[2] + s2[2], ang_z1, ang_y, ang_z2]
+        pick_pose = [real_target[0] + s3[0], real_target[1] + s3[1], real_target[2] + s3[2], ang_z1, ang_y, ang_z2]
+        
+        amovel(pick_pose_up)
+        collision_flag = self.mwait_collision_detection(goal_pose = pick_pose_up, pose_thresh = 20.0)
+        if collision_flag is True:
+            #release_compliance_ctrl()
+            self.go_home()
+            return
+            
+        amovel(pick_pose_wp)
+        collision_flag = self.mwait_collision_detection(goal_pose = pick_pose_wp)
+        if collision_flag is True:
+            #release_compliance_ctrl()
+            movel([0, 0, -200, 0, 0, 0], vel=10, acc=20, ref=DR_TOOL)
+            self.go_home()
+            return
+            
+        amovel(pick_pose, vel=50, acc=100)
+        #amovel(pick_pose)
+        self.mwait_collision_detection(goal_pose = pick_pose)
+        self.gripper.grip()
+        #release_compliance_ctrl()
+        time.sleep(0.5)
+        
+        amovel(pick_pose_up)
+        collision_flag = self.mwait_collision_detection(goal_pose = pick_pose_up, pose_thresh = 20.0)
+        if collision_flag is True:
+            #release_compliance_ctrl()
+            self.go_home()
+            return
+            
+        place_pose = posx(844.95, 12.13, 377.14, p_center_up[3], p_center_up[4], p_center_up[5]) # receive from vision module
+        amovel(p_center_up)
+        ref = p_center_up
+        grip_flag = False
+        while True:
+            p, ws = get_current_posx(DR_BASE)
+            dist = sqrt(pow(float(p[0]) - ref[0] ,2) + pow(float(p[1]) - ref[1] ,2) + pow(float(p[2]) - ref[2] ,2))
+            if dist < 2.0:
+                tp_log('Goal reach !!!')
+                break
+            force = get_tool_force()
+            force_sum = sqrt(force[0]*force[0] + force[1]*force[1] + force[2]*force[2])
+            if force_sum < -5:
+                tp_log('Grip Success !!!')
+                grip_flag = True
+        
+        flag = self.gripper.grip_get_success()
+        grip_flag = flag
+        tp_log(str(grip_flag))
+            
+        if grip_flag is False:
+            self.gripper.grip_release()
+            self.go_home()
+            return
+            
+        movel(place_pose)
+        
+        self.gripper.grip_release()
+        time.sleep(0.5)
+        
+        self.go_home()
+        
+        time.sleep(0.1)
+
+    def routine_demo(self):
+        vel = 200
+        set_velx(vel)
+        set_accx(vel*2)
+        self.gripper.grip_release()
+        
+        init_joint = posj(65.15, -0.13, 126.05, -0.02, 54.16, -203.99) # receive from vision module
+        movej(init_joint, vel=50, acc=100)
+        
+        # receive from vision module
+        p1 = posx(409.98, 180.56, 386.15, 165.71, -179.83, -106.4)
+        p2 = posx(400.58, -169.29, 387.6, 162.66, -179.83, -109.44)
+        p3 = posx(615.65, -176.01, 388.44, 161.86, -179.84, -110.24)
+        p4 = posx(622.8, 187.12, 388.52, 158.92, -179.85, -113.17)
+        
+        p_center = get_intermediate_pose(p1, p3, 0.5)
+        p_center_up = posx(p_center[0], p_center[1], p_center[2] + 50, p_center[3], p_center[4], p_center[5])
+        init_pose, ws = get_current_posx(DR_BASE)
+        init_pose_up = posx(init_pose[0], init_pose[1], init_pose[2] + 50, init_pose[3], init_pose[4], init_pose[5])
+        
+        pick_pose = posx(510.88, 190, 298.41, -90, -135, 90) # receive from vision module
+        pick_pose_up = posx(pick_pose[0], pick_pose[1], pick_pose[2] + 70, pick_pose[3], pick_pose[4], pick_pose[5])
+        pick_pose_wp = posx(pick_pose[0], pick_pose[1], pick_pose[2] + 30, pick_pose[3], pick_pose[4], pick_pose[5])
+        
+        place_pose = posx(844.95, 12.13, 377.14, p_center_up[3], p_center_up[4], p_center_up[5]) # receive from vision module
+        
+        amovel(init_pose_up)
+        collision_flag = self.mwait_collision_detection(goal_pose = init_pose_up, pose_thresh = 20.0)
+        if collision_flag is True:
+            self.go_home()
+            return
+        
+        amovel(p_center_up)
+        collision_flag = self.mwait_collision_detection(goal_pose = p_center_up, pose_thresh = 20.0)
+        if collision_flag is True:
+            self.go_home()
+            return
+            
+        normal_offset = 200
+        normal_offset2 = 100
+        tool_offset = 270
+        real_target = pick_pose
+        real_target[2] -= tool_offset
+        sp = [0, 0, -normal_offset - tool_offset]
+        sp2 = [0, 0, -normal_offset2 - tool_offset]
+        sp3 = [0, 0,-tool_offset]
+        
+        ang_z1 = pick_pose[3]
+        ang_y = pick_pose[4]
+        ang_z2 = pick_pose[5]
+        
+        Rz1 = rotz(ang_z1)
+        Ry = roty(ang_y)
+        Rz2 = rotz(ang_z2)
+        R = eul2rotm([ang_z1, ang_y, ang_z2])
+        
+        s = [0, 0, 0]
+        s2 = [0, 0, 0]
+        s3 = [0, 0, 0]
+        for i in range(0, 3):
+            s[i] = 0
+            s2[i] = 0
+            s3[i] = 0
+            for j in range(0, 3):
+                s[i] += R[i][j]*sp[j]
+                s2[i] += R[i][j]*sp2[j]
+                s3[i] += R[i][j]*sp3[j]
+                
+        pick_pose_up = [real_target[0] + s[0], real_target[1] + s[1], real_target[2] + s[2], ang_z1, ang_y, ang_z2]
+        pick_pose_wp = [real_target[0] + s2[0], real_target[1] + s2[1], real_target[2] + s2[2], ang_z1, ang_y, ang_z2]
+        pick_pose = [real_target[0] + s3[0], real_target[1] + s3[1], real_target[2] + s3[2], ang_z1, ang_y, ang_z2]
+        
+        amovel(pick_pose_up)
+        collision_flag = self.mwait_collision_detection(goal_pose = pick_pose_up, pose_thresh = 20.0)
+        if collision_flag is True:
+            self.go_home()
+            return
+            
+        cnt = 1
+        while True:
+            self.gripper.grip_release()
+            amovel(pick_pose_wp)
+            collision_flag = self.mwait_collision_detection(goal_pose = pick_pose_wp)
+                
+            if collision_flag is False:
+                amovel(pick_pose, vel=50, acc=100)
+                self.mwait_collision_detection(goal_pose = pick_pose)
+                self.gripper.grip()
+                time.sleep(0.5)
+            
+            amovel(pick_pose_up)
+            collision_flag = self.mwait_collision_detection(goal_pose = pick_pose_up, pose_thresh = 20.0)
+            
+            flag = self.gripper.grip_get_success()
+            grip_flag = flag
+            tp_log('Grip Success : ' + str(grip_flag))
+                
+            if grip_flag is True:
+                break
+                
+            if cnt > 5:
+                break
+            cnt += 1
+            
+        amovel(p_center_up)
+        ref = p_center_up
+        grip_flag = False
+        while True:
+            p, ws = get_current_posx(DR_BASE)
+            dist = sqrt(pow(float(p[0]) - ref[0] ,2) + pow(float(p[1]) - ref[1] ,2) + pow(float(p[2]) - ref[2] ,2))
+            if dist < 2.0:
+                tp_log('Goal reach !!!')
+                break
+            force = get_tool_force()
+            force_sum = sqrt(force[0]*force[0] + force[1]*force[1] + force[2]*force[2])
+            if force_sum < -5:
+                tp_log('Grip Success !!!')
+                grip_flag = True
+        
+        flag = self.gripper.grip_get_success()
+        grip_flag = flag
+        tp_log(str(grip_flag))
+            
+        if grip_flag is False:
+            self.gripper.grip_release()
+            self.go_home()
+            return
+            
+        place_pose = posx(844.95, 12.13, 377.14, p_center_up[3], p_center_up[4], p_center_up[5]) # receive from vision module
+        movel(place_pose)
+        
+        self.gripper.grip_release()
+        time.sleep(0.5)
+        
+        self.go_home()
+        
+        time.sleep(0.1)
+    
+    def routine_demo_with_vision(self):
+        tool_offset = 270
+        vel = 10
+        set_velx(vel)
+        set_accx(vel*2)
+        self.gripper.grip_release()
+        
+        movej(m_main_master.m_config.predefined_pos["init"][0], vel=50, acc=100)
+        
+        init_pose, sp = get_current_posx(DR_BASE)
+        
+        p = m_main_master.m_config.config_bin
+        p1 = posx(p[0], p[1], p[2] + tool_offset, init_pose[3], init_pose[4], init_pose[5])
+        p2 = posx(p[3], p[4], p[5] + tool_offset, init_pose[3], init_pose[4], init_pose[5])
+        p3 = posx(p[6], p[7], p[8] + tool_offset, init_pose[3], init_pose[4], init_pose[5])
+        p4 = posx(p[9], p[10], p[11] + tool_offset, init_pose[3], init_pose[4], init_pose[5])
+        tp_log('p1 : ' + str(p1))
+        tp_log('p2 : ' + str(p2))
+        tp_log('p3 : ' + str(p3))
+        tp_log('p4 : ' + str(p4))
+        z_avg = (p1[2] + p2[2] + p3[2] + p4[2])/4.0
+        
+        p_center = get_intermediate_pose(p1, p3, 0.5)
+        p_center_up = posx(p_center[0], p_center[1], p_center[2] + 50, p_center[3], p_center[4], p_center[5])
+        
+        if init_pose[2] > z_avg:
+            init_pose_up = init_pose
+        else:
+            init_pose_up = posx(init_pose[0], init_pose[1], init_pose[2] + 50, init_pose[3], init_pose[4], init_pose[5])
+        
+        #self.m_tcp.send_order(type = 'fix')
+        #grip_pos, grip_size = self.wait_get_pos_and_gripsize(bias_grip = 10)
+        #tp_log(str(grip_pos))
+        #movel(grip_pos, time=5)
+        self.m_tcp.send_order(type = 'arm')
+        time.sleep(1)
+        grip_pos, grip_size = self.wait_get_pos_and_gripsize(bias_grip = 10)
+        moveb(grip_pos, time=20)
+        
+        
+
+m_main_master = main_master()
+m_main_master.init_mm()
+tp_log('go to home : ' + str(m_main_master.m_config.predefined_pos["home"][0]))
+movej(m_main_master.m_config.predefined_pos["home"][0], vel=50, acc=100)
+#m_main_master.state_selected_routine = m_main_master.routine_collision_test
+#m_main_master.state_selected_routine = m_main_master.routine_compliance_ctrl_test
+#m_main_master.state_selected_routine = m_main_master.routine_gripper_test
+#m_main_master.state_selected_routine = m_main_master.routine_lv_hj
+#m_main_master.state_selected_routine = m_main_master.routine_demo
+m_main_master.state_selected_routine = m_main_master.routine_demo_with_vision
+while(True):
+    if(m_main_master.state_selected_routine != ''):
+        m_main_master.state_selected_routine()
+        break
+    time.sleep(0.1)
+
+sub_program_run("init_sys_var")
+print('-_-')
+
+
+# home joint = [65.14, -6.44, 117.72, -0.01, 68.81, 66.0]
+# pick pose = [481.53, 12.03, 285.56, 176.73, -179.98, 86.72]
+# drop pose = [844.95, 12.13, 377.14, 171.63, -179.99, 81.62]]
+
+#p1 = posx(409.98, 180.56, 386.15 - 270, 165.71, -179.83, -106.4)
+#p2 = posx(400.58, -169.29, 387.6 - 270, 162.66, -179.83, -109.44)
+#p3 = posx(615.65, -176.01, 388.44 - 270, 161.86, -179.84, -110.24)
+#p4 = posx(622.8, 187.12, 388.52 - 270, 158.92, -179.85, -113.17)
