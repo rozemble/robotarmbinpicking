@@ -839,59 +839,41 @@ class PointEstimator():
         tcp2camera = [tcp2camera[i] if i < 3 else 0 for i in range(6)]
         curpos = self.trans(curpos, refpos, mode="DR_TOOL")
         return self.trans(curpos, tcp2camera, mode="DR_TOOL")[0:3]
-        # return self.trans(curpos,offset, mode="DR_TOOL")[0:3]
-        #
-        # camera2obj = [refpos[0], refpos[1], 0, 0, 0, 0]
-        # temp_pos = self.trans(curpos, camera2obj, "DR_TOOL")
-        # tool_offset = [tcp2camera[0], tcp2camera[1], 0, 0, 0, 0]
-        # temp_pos = self.trans(temp_pos, tool_offset, "DR_TOOL")
-        # tool_offset = [0, 0, refpos[2] + tcp2camera[2] + 20, 0, 0, 0]
-        # #temp_pos2 = self.trans(temp_pos, tool_offset, "DR_TOOL")
-        # return self.trans(temp_pos, tool_offset, "DR_TOOL")[0:3]
 
     def movePos2(self, curpos, pos):
-        # self.pos = []
-        # refpos = recv_msg["DEST_POS"]
+
         refpos = pos
         # tcp2camera = [ -58,-39,170 ]
         tcp2camera = [-75, 35, 30]
         tcp2tool = [0, 0, 280]
         grip_rotation = 0.0
-        # curr_pos = get_current_posx()[0]
-        print('curr_pos ' + str(curpos))
-        # curr_pos[297.404, -19.180, 476.727, 176.310, 179.960, 176.090]
-        print('refpos' + str(refpos))
-        # refpos[-35.98163633526756, 71.31509095551931, 430.0, 0.1085040041688638, 0.5701682322140159, -0.8143310555623355, 79.22534801745716, 144.52127178293222, 0]
+
         camera2obj = [refpos[0], refpos[1], 0, 0, 0, 0]
         print('camera2obj ' + str(camera2obj))
-        # camera2obj[-35.98163633526756, 71.31509095551931, 0, 0, 0, 0]
+
         temp_pos = self.trans(curpos, camera2obj, "DR_TOOL")
         print('temp_pos ' + str(temp_pos))
-        # temp_pos[333.111, 52.272, 476.706, 176.310, 179.960, 176.090]
 
         tool_offset = [tcp2camera[0], tcp2camera[1], 0, 0, 0, 0]
         print('tool_camera_offset ' + str(tool_offset))
-        # tool_camera_offset[-75, 35, 0, 0, 0, 0]
 
         temp_pos = self.trans(temp_pos, tool_offset, "DR_TOOL")
         print('temp_pos ' + str(temp_pos))
-        # temp_pos[407.976, 87.560, 476.655, 176.310, 179.960, 176.090]
+
         tool_offset = tcp2tool
         tool_offset = [tool_offset[0], tool_offset[1], 0, 0, 0, 0]
         print('tool_tool_offset ' + str(tool_offset))
-        # tool_tool_offset[0, 0, 0, 0, 0, 0]
+
         temp_pos = self.trans(temp_pos, tool_offset, "DR_TOOL")
         print('temp_pos ' + str(temp_pos))
-        # temp_pos[407.976, 87.560, 476.655, 176.310, 179.960, 176.090]
 
-        # seg11 = posb(DR_LINE, temp_pos, radius=40)
+
         # 대상 물체의 좌표
         tool_offset = [0, 0, refpos[2] + tcp2camera[2] + 20, 0, 0, 0]
         print('tool_offset ' + str(tool_offset))
-        # tool_offset[0, 0, 480.0, 0, 0, 0]
+
         temp_pos2 = self.trans(temp_pos, tool_offset, "DR_TOOL")
         print('temp_pos2' + str(temp_pos2))
-        # temp_pos2[407.642, 87.582, -3.345, 176.310, 179.960, 176.090]
 
         # 대상 물체의 좌표에서 벡터 적용
         # zyz = recv_msg['RXYZ']
@@ -926,102 +908,6 @@ class PointEstimator():
         # nor_vec[0.1085040041688638, 0.5701682322140159, -0.8143310555623355]
         offset_pos = [obj2precontect * nor_vec[0], obj2precontect * nor_vec[1], obj2precontect * nor_vec[2], 0, 0,
                       0]
-        precontect_pos = self.trans(contect_pos, offset_pos, "DR_BASE")
-        preprecontect_pos = self.trans(precontect_pos, offset_pos, "DR_BASE")
-        ####
-        # preprecontect_pos = [370.751, -106.276, 273.528, 79.225, 144.521, -90.000]
-        ####
-        print('curpos(in robot_cood)' + str(curpos))
-        print('precontact_pos(in robot_cood)' + str(precontect_pos))
-        print('contact_pos(in robot_cood)' + str(contect_pos))
-        print('target_pos(in robot_cood)' + str(temp_pos5))
-        # curpos( in robot_cood)[297.404, -19.180, 476.727, 176.310, 179.960, 176.090]
-        # precontact_pos( in robot_cood)[374.006, -89.171, 249.098, 79.225, 144.521, -90.000]
-        # contact_pos( in robot_cood)[377.261, -72.066, 224.668, 79.225, 144.521, -90.000]
-        # target_pos( in robot_cood)[407.642, 87.582, -3.345, 79.225, 144.521, -90.000]
-
-        # self.target_dict = {'READY':True,'POS':[preprecontect_pos, contect_pos], 'GRIP_SIZE':recv_msg['GRIP_SIZE']}
-        # self.state_command = True
-        print(str(preprecontect_pos))
-        self.pos = preprecontect_pos
-        self.state_move = True
-
-    def movePos2_temp(self, curpos, pos):
-        # self.pos = []
-        # refpos = recv_msg["DEST_POS"]
-        refpos = pos
-        # tcp2camera = [ -58,-39,170 ]
-        tcp2camera = [-75, 35, 30]
-        tcp2tool = [0, 0, 280]
-        grip_rotation = 0.0
-        # curr_pos = get_current_posx()[0]
-        print('curr_pos ' + str(curpos))
-        # curr_pos[297.404, -19.180, 476.727, 176.310, 179.960, 176.090]
-        print('refpos' + str(refpos))
-        # refpos[-35.98163633526756, 71.31509095551931, 430.0, 0.1085040041688638, 0.5701682322140159, -0.8143310555623355, 79.22534801745716, 144.52127178293222, 0]
-        camera2obj = [refpos[0], refpos[1], 0, 0, 0, 0]
-        print('camera2obj ' + str(camera2obj))
-        # camera2obj[-35.98163633526756, 71.31509095551931, 0, 0, 0, 0]
-        temp_pos = self.trans(curpos, camera2obj, "DR_TOOL")
-        print('temp_pos ' + str(temp_pos))
-        # temp_pos[333.111, 52.272, 476.706, 176.310, 179.960, 176.090]
-
-        tool_offset = tcp2camera
-        tool_offset = [tool_offset[0], tool_offset[1], 0, 0, 0, 0]
-        print('tool_camera_offset ' + str(tool_offset))
-        # tool_camera_offset[-75, 35, 0, 0, 0, 0]
-
-        temp_pos = self.trans(temp_pos, tool_offset, "DR_TOOL")
-        print('temp_pos ' + str(temp_pos))
-        # temp_pos[407.976, 87.560, 476.655, 176.310, 179.960, 176.090]
-        tool_offset = tcp2tool
-        tool_offset = [tool_offset[0], tool_offset[1], 0, 0, 0, 0]
-        print('tool_tool_offset ' + str(tool_offset))
-        # tool_tool_offset[0, 0, 0, 0, 0, 0]
-        temp_pos = self.trans(temp_pos, tool_offset, "DR_TOOL")
-        print('temp_pos ' + str(temp_pos))
-        # temp_pos[407.976, 87.560, 476.655, 176.310, 179.960, 176.090]
-
-        # seg11 = posb(DR_LINE, temp_pos, radius=40)
-        # 대상 물체의 좌표
-        tool_offset = [0, 0, refpos[2] + tcp2camera[2] + 20, 0, 0, 0]
-        print('tool_offset ' + str(tool_offset))
-        # tool_offset[0, 0, 480.0, 0, 0, 0]
-        temp_pos2 = self.trans(temp_pos, tool_offset, "DR_TOOL")
-        print('temp_pos2' + str(temp_pos2))
-        # temp_pos2[407.642, 87.582, -3.345, 176.310, 179.960, 176.090]
-
-        # 대상 물체의 좌표에서 벡터 적용
-        # zyz = recv_msg['RXYZ']
-        zyz = [refpos[6], refpos[7], refpos[8]]
-        print('zyz ' + str(zyz))
-        # zyz[79.22534801745716, 144.52127178293222, 0]
-        nor_vec = [refpos[3], refpos[4], refpos[5]]
-        # temp_pos5 = posx([temp_pos2[0], temp_pos2[1], temp_pos2[2], zyz[0], zyz[1], zyz[2]])
-        temp_pos5 = [temp_pos2[0], temp_pos2[1], temp_pos2[2], zyz[0], zyz[1], zyz[2]]
-        print('temp_pos5 ' + str(temp_pos5))
-        # temp_pos5[407.642, 87.582, -3.345, 79.225, 144.521, 0.000]
-
-        # 툴크기를 감안한 로봇 위치 계산.
-        temp_pos5 = self.trans(temp_pos5, [0, 0, 0, 0, 0, grip_rotation - 90], "DR_TOOL")
-        print('temp_pos5' + str(temp_pos5))
-        # temp_pos5[407.642, 87.582, -3.345, 79.225, 144.521, -90.000]
-        obj2contect = [tcp2tool[0] * -1, tcp2tool[1] * -1, tcp2tool[2] * -1]
-
-        offset_pos = [obj2contect[2] * nor_vec[0], obj2contect[2] * nor_vec[1], obj2contect[2] * nor_vec[2], 0, 0, 0]
-        print('offset_pos ' + str(offset_pos))
-        # offset_pos[-30.381121167281865, -159.64710501992445, 228.01269555745395, 0, 0, 0]
-        contect_pos = self.trans(temp_pos5, offset_pos, "DR_BASE")
-        print('contect_pos ' + str(contect_pos))
-        # contect_pos[377.261, -72.066, 224.668, 79.225, 144.521, -90.000]
-
-        # contact시작 포인트의 위치 계산.
-        # obj2precontect = self.m_config.mod_path["OBJ2PRECONTACTPOS"][2] * -1
-        obj2precontect = -30
-
-        print('nor_vec' + str(nor_vec))
-        # nor_vec[0.1085040041688638, 0.5701682322140159, -0.8143310555623355]
-        offset_pos = [obj2precontect * nor_vec[0], obj2precontect * nor_vec[1], obj2precontect * nor_vec[2], 0, 0, 0]
         precontect_pos = self.trans(contect_pos, offset_pos, "DR_BASE")
         preprecontect_pos = self.trans(precontect_pos, offset_pos, "DR_BASE")
         ####
