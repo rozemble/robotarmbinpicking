@@ -196,9 +196,9 @@ class main_master():
             time.sleep(0.1)
         self.target_dict['READY'] = False
         return self.target_dict['POS'], self.target_dict['GRIP_SIZE'] + bias_grip
-015
+
     def go_home(self):
-4        self.gripper.grip_release()
+        self.gripper.grip_release()
         current_p, ws = get_current_posx(DR_BASE)
         current_p_up = posx(current_p[0]-50, current_p[1], current_p[2] + 100, current_p[3], current_p[4], current_p[5])
         current_p_back = posx(current_p_up[0] - 150, current_p_up[1], current_p_up[2], current_p_up[3], current_p_up[4], current_p_up[5])

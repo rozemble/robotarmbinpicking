@@ -8,7 +8,7 @@ class robot(Process):
 
     #로봇의 생성자.
     ########################################################################################################
-    # multiprocessing의 경우 picklable(피클로 만들 수 있는)한 변수만 init에 선언해두고 그이외의 것들은 선언해도 없어짐 T_T
+    # multiprocessing의 경우 picklable(피클로 만들 수 있는)한 변수만 init에 선언 가능
     ########################################################################################################
     def __init__(self, robotStatus, algoStatus, connStatus, taskQ, sendQ, cfg={}):
         """
@@ -29,7 +29,6 @@ class robot(Process):
         self.sendQ = sendQ
 
     def run(self):
-        print("ROBOT_MASTER RUN")
 
         self.checkCamera()
         self.robotStatus["status"] = "READY"
@@ -85,15 +84,6 @@ class robot(Process):
                                 pickle.dump([2] + log, f, pickle.HIGHEST_PROTOCOL)
                             elif arg["dest"] == 0:
                                 pickle.dump([0] + log, f, pickle.HIGHEST_PROTOCOL)
-
-                        # [센터노멀, 평행점개수, 전체점개수,근접점거리,중앙점거리]
-                        # if arg["dest"] == 1:
-                        #     f.writelines(str([1] + log)+"\n")
-                        # elif arg["dest"] == 2:
-                        #     f.writelines(str([2] + log)+"\n")
-                        # elif arg["dest"] == 0:
-                        #     f.writelines(str([0] + log)+"\n")
-                        #
 
                     self.algoStatus["status"] = "CAP"
                     self.robotStatus["status"] = "READY"

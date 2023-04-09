@@ -4,7 +4,7 @@ import json
 
 #설정 변수들을 저장합니다.
 class config_module():
-    #이것 저것 config값. 나중에는 클래스 밖으로 나갈 수도 있음?
+    #config 설정
     mod_path = {}
     predefined_pos = {}
     config_gripper = {}   
@@ -607,7 +607,7 @@ while(True):
     time.sleep(0.1)
 
 sub_program_run("init_sys_var")
-print('-_-')
+
 
 
 # home joint = [65.14, -6.44, 117.72, -0.01, 68.81, 66.0]
