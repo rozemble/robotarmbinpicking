@@ -13,7 +13,7 @@ Doosan Robotics의 A0509 협동로봇 기반 Vision AI를 활용한 Bin Picking 
 3. 그외 활용 툴
 	- Blender : AI 학습용 합성 데이터셋 생성
 
-## 주요 모듈(개발 기여도 80% 이상)
+## 주요 모듈(개발 기여도 90% 이상)
 - 메인 프로세스 
 	- a0509.py
 	- module/robot/robot.py
